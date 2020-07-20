@@ -14,4 +14,4 @@
  * limitations under the License.
  */
 
-export { BuildDetailsPage } from './BuildDetailsPage';
+export { WorkflowRunsPage } from './WorkflowRunsPage';

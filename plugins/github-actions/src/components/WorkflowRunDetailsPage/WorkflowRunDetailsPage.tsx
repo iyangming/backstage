@@ -26,12 +26,24 @@ import {
   TableRow,
   Theme,
   Typography,
+  Box,
+  ExpansionPanelDetails,
+  ExpansionPanel,
+  ExpansionPanelSummary,
+  ListItem,
+  List,
+  ListItemText,
 } from '@material-ui/core';
+import moment from 'moment';
+
 import React from 'react';
 import { useParams } from 'react-router-dom';
 import { useAsync } from 'react-use';
 import { Link, useApi, githubAuthApiRef } from '@backstage/core';
 import { githubActionsApiRef } from '../../api';
+import { Job, Step, Jobs } from '../types';
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import { WorkflowRunStatusIndicator } from '../WorkflowRunStatusIndicator';
 
 const useStyles = makeStyles<Theme>(theme => ({
   root: {
@@ -44,9 +56,85 @@ const useStyles = makeStyles<Theme>(theme => ({
   table: {
     padding: theme.spacing(1),
   },
+  expansionPanelDetails: {
+    padding: 0,
+  },
+  button: {
+    order: -1,
+    marginRight: 0,
+    marginLeft: '-20px',
+  },
 }));
 
-export const BuildDetailsPage = () => {
+const JobsList = ({ jobs }: { jobs?: Jobs }) => {
+  const classes = useStyles();
+  return (
+    <Box>
+      {jobs &&
+        jobs.total_count > 0 &&
+        jobs.jobs.map((job: Job) => (
+          <JobListItem
+            job={job}
+            className={
+              job.status !== 'success' ? classes.failed : classes.success
+            }
+          />
+        ))}
+    </Box>
+  );
+};
+
+const getElapsedTime = (start: string, end: string) => {
+  const diff = moment(moment(end || moment()).diff(moment(start)));
+  const timeElapsed = diff.format('m [minutes] s [seconds]');
+  return timeElapsed;
+};
+
+const StepView = ({ step }: { step: Step }) => {
+  return (
+    <ListItem>
+      <ListItemText
+        primary={step.name}
+        secondary={getElapsedTime(step.started_at, step.completed_at)}
+      />
+    </ListItem>
+  );
+};
+
+const JobListItem = ({ job, className }: { job: Job; className: string }) => {
+  const classes = useStyles();
+  return (
+    <ExpansionPanel
+      TransitionProps={{ unmountOnExit: true }}
+      className={className}
+    >
+      <ExpansionPanelSummary
+        expandIcon={<ExpandMoreIcon />}
+        aria-controls={`panel-${name}-content`}
+        id={`panel-${name}-header`}
+        IconButtonProps={{
+          className: classes.button,
+        }}
+      >
+        <Typography variant="button">
+          {job.name} ({getElapsedTime(job.started_at, job.completed_at)})
+        </Typography>
+      </ExpansionPanelSummary>
+      <ExpansionPanelDetails className={classes.expansionPanelDetails}>
+        <List>
+          {job.steps.map((step: Step) => (
+            <StepView step={step} />
+          ))}
+        </List>
+      </ExpansionPanelDetails>
+    </ExpansionPanel>
+  );
+};
+
+/**
+ * A component for Jobs visualization. Jobs are a property of a Workflow Run.
+ */
+export const WorkflowRunDetailsPage = () => {
   const repo = 'try-ssr';
   const owner = 'CircleCITest3';
   const api = useApi(githubActionsApiRef);
@@ -56,17 +144,21 @@ export const BuildDetailsPage = () => {
   const { id } = useParams();
   const status = useAsync(async () => {
     const token = await auth.getAccessToken(['repo', 'user']);
-    return api
-      .getWorkflowRun({
-        token,
-        owner,
-        repo,
-        id: parseInt(id, 10),
-      })
-      .then(data => {
-        return data;
-      });
+    return api.getWorkflowRun({
+      token,
+      owner,
+      repo,
+      id: parseInt(id, 10),
+    });
   }, [location.search]);
+
+  const details = status.value;
+
+  const jobs = useAsync<Jobs>(async () => {
+    if (details === undefined) return [];
+    const data = await fetch(details.jobs_url).then(d => d.json());
+    return data;
+  }, [details]);
 
   if (status.loading) {
     return <LinearProgress />;
@@ -78,8 +170,6 @@ export const BuildDetailsPage = () => {
     );
   }
 
-  const details = status.value;
-
   return (
     <div className={classes.root}>
       <Typography className={classes.title} variant="h3">
@@ -88,7 +178,7 @@ export const BuildDetailsPage = () => {
             &lt;
           </Typography>
         </Link>
-        Build Details
+        Workflow Run Details
       </Typography>
       <TableContainer component={Paper} className={classes.table}>
         <Table>
@@ -115,7 +205,9 @@ export const BuildDetailsPage = () => {
               <TableCell>
                 <Typography noWrap>Status</Typography>
               </TableCell>
-              <TableCell>{details?.status}</TableCell>
+              <TableCell>
+                <WorkflowRunStatusIndicator status={details?.status} />
+              </TableCell>
             </TableRow>
             <TableRow>
               <TableCell>
@@ -133,6 +225,12 @@ export const BuildDetailsPage = () => {
                     <a href={details.html_url}>GitHub</a>
                   </Button>
                 )}
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell colSpan={2}>
+                <Typography noWrap>Jobs</Typography>
+                <JobsList jobs={jobs.value} />
               </TableCell>
             </TableRow>
           </TableBody>
